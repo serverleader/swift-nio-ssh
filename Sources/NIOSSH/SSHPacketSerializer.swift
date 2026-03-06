@@ -24,6 +24,12 @@ struct SSHPacketSerializer {
     private var state: State = .initialized
     private var sequenceNumber: UInt32 = 0
 
+    /// Resets the outbound packet sequence number to 0.
+    /// Required by the strict key exchange extension (CVE-2023-48795 / Terrapin mitigation).
+    mutating func resetSequenceNumber() {
+        self.sequenceNumber = 0
+    }
+
     /// Encryption schemes can be added to a packet serializer whenever encryption is negotiated.
     mutating func addEncryption(_ protection: NIOSSHTransportProtection) {
         switch self.state {

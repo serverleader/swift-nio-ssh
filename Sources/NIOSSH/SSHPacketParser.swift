@@ -29,6 +29,12 @@ struct SSHPacketParser {
     private let maximumPacketSize: Int
     internal static let defaultMaximumPacketSize = 1 << 17
 
+    /// Resets the inbound packet sequence number to 0.
+    /// Required by the strict key exchange extension (CVE-2023-48795 / Terrapin mitigation).
+    mutating func resetSequenceNumber() {
+        self.sequenceNumber = 0
+    }
+
     /// Testing only: the number of bytes we can discard from this buffer.
     internal var _discardableBytes: Int {
         self.buffer.readerIndex

@@ -75,6 +75,16 @@ struct SSHKeyExchangeStateMachine {
     private var keyExchangeAlgorithms: [NIOSSHKeyExchangeAlgorithmProtocol.Type]
     private var previousSessionIdentifier: ByteBuffer?
 
+    /// Whether strict key exchange mode has been negotiated.
+    /// This is set when both sides advertise the strict KEX extension.
+    private(set) var strictKeyExchangeNegotiated: Bool = false
+
+    /// The strict KEX extension identifier advertised by clients.
+    static let strictKexClientExtension: Substring = "kex-strict-c-v00@openssh.com"
+
+    /// The strict KEX extension identifier advertised by servers.
+    static let strictKexServerExtension: Substring = "kex-strict-s-v00@openssh.com"
+
     init(allocator: ByteBufferAllocator, loop: EventLoop, role: SSHConnectionRole, remoteVersion: String, keyExchangeAlgorithms: [NIOSSHKeyExchangeAlgorithmProtocol.Type], transportProtectionSchemes: [NIOSSHTransportProtection.Type], previousSessionIdentifier: ByteBuffer?) {
         self.allocator = allocator
         self.loop = loop
@@ -103,9 +113,19 @@ struct SSHKeyExchangeStateMachine {
         let encryptionAlgorithms = self.supportedEncryptionAlgorithms
         let macAlgorithms = self.supportedMacAlgorithms
 
+        // Append the strict KEX extension pseudo-algorithm to advertise support.
+        // Clients advertise kex-strict-c-v00@openssh.com, servers advertise kex-strict-s-v00@openssh.com.
+        var kexAlgorithms = self.role.keyExchangeAlgorithmNames
+        switch self.role {
+        case .client:
+            kexAlgorithms.append(Self.strictKexClientExtension)
+        case .server:
+            kexAlgorithms.append(Self.strictKexServerExtension)
+        }
+
         return .init(
             cookie: rng.randomCookie(allocator: self.allocator),
-            keyExchangeAlgorithms: self.role.keyExchangeAlgorithmNames,
+            keyExchangeAlgorithms: kexAlgorithms,
             serverHostKeyAlgorithms: self.supportedHostKeyAlgorithms,
             encryptionAlgorithmsClientToServer: encryptionAlgorithms,
             encryptionAlgorithmsServerToClient: encryptionAlgorithms,
@@ -120,6 +140,24 @@ struct SSHKeyExchangeStateMachine {
     }
 
     mutating func handle(keyExchange message: SSHMessage.KeyExchangeMessage) throws -> SSHMultiMessage? {
+        // Check if the peer supports strict key exchange.
+        // Only negotiate strict KEX during the initial key exchange (previousSessionIdentifier == nil),
+        // not during rekeying.
+        if self.previousSessionIdentifier == nil {
+            switch self.role {
+            case .client:
+                // We're the client; check if the server advertises the server extension.
+                if message.keyExchangeAlgorithms.contains(Self.strictKexServerExtension) {
+                    self.strictKeyExchangeNegotiated = true
+                }
+            case .server:
+                // We're the server; check if the client advertises the client extension.
+                if message.keyExchangeAlgorithms.contains(Self.strictKexClientExtension) {
+                    self.strictKeyExchangeNegotiated = true
+                }
+            }
+        }
+
         switch self.state {
         case .keyExchangeSent(message: let ourMessage):
             switch self.role {
@@ -378,6 +416,12 @@ struct SSHKeyExchangeStateMachine {
         return NegotiationResult(negotiatedKeyExchangeAlgorithm: keyExchange, negotiatedHostKeyAlgorithm: hostKey, negotiatedMacAlgorithm: clientMAC, negotiatedProtection: scheme)
     }
 
+    /// Filters out strict KEX pseudo-algorithm extensions from a kex algorithm list so they don't
+    /// interfere with actual key exchange algorithm negotiation.
+    private func filterStrictKexExtensions(_ algorithms: [Substring]) -> [Substring] {
+        algorithms.filter { $0 != Self.strictKexClientExtension && $0 != Self.strictKexServerExtension }
+    }
+
     private func negotiatedKeyExchangeAlgorithm(peerKeyExchangeAlgorithms: [Substring], peerHostKeyAlgorithms: [Substring]) throws -> (keyExchange: Substring, hostKey: Substring) {
         // From RFC 4253:
         //
@@ -411,13 +455,13 @@ struct SSHKeyExchangeStateMachine {
 
         switch self.role {
         case .client:
-            clientAlgorithms = self.role.keyExchangeAlgorithmNames
-            serverAlgorithms = peerKeyExchangeAlgorithms
+            clientAlgorithms = self.filterStrictKexExtensions(self.role.keyExchangeAlgorithmNames)
+            serverAlgorithms = self.filterStrictKexExtensions(peerKeyExchangeAlgorithms)
             clientHostKeyAlgorithms = self.supportedHostKeyAlgorithms
             serverHostKeyAlgorithms = peerHostKeyAlgorithms
         case .server:
-            clientAlgorithms = peerKeyExchangeAlgorithms
-            serverAlgorithms = self.role.keyExchangeAlgorithmNames
+            clientAlgorithms = self.filterStrictKexExtensions(peerKeyExchangeAlgorithms)
+            serverAlgorithms = self.filterStrictKexExtensions(self.role.keyExchangeAlgorithmNames)
             clientHostKeyAlgorithms = peerHostKeyAlgorithms
             serverHostKeyAlgorithms = self.supportedHostKeyAlgorithms
         }

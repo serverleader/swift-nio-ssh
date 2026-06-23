@@ -38,6 +38,8 @@ enum SSHMessage: Equatable {
     case userAuthSuccess
     case userAuthBanner(UserAuthBannerMessage)
     case userAuthPKOK(UserAuthPKOKMessage)
+    case userAuthInfoRequest(UserAuthInfoRequestMessage)
+    case userAuthInfoResponse(UserAuthInfoResponseMessage)
     case globalRequest(GlobalRequestMessage)
     case requestSuccess(RequestSuccessMessage)
     case requestFailure
@@ -186,6 +188,29 @@ extension SSHMessage {
         static let id: UInt8 = 60
 
         var key: NIOSSHPublicKey
+    }
+
+    struct UserAuthInfoRequestMessage: Equatable {
+        // SSH_MSG_USERAUTH_INFO_REQUEST (RFC 4256). Shares byte 60 with PK_OK;
+        // disambiguated by in-flight auth method at parse time.
+        static let id: UInt8 = 60
+
+        struct InfoPrompt: Equatable {
+            var prompt: String
+            var echo: Bool
+        }
+
+        var name: String
+        var instruction: String
+        var languageTag: String
+        var prompts: [InfoPrompt]
+    }
+
+    struct UserAuthInfoResponseMessage: Equatable {
+        // SSH_MSG_USERAUTH_INFO_RESPONSE (RFC 4256)
+        static let id: UInt8 = 61
+
+        var responses: [String]
     }
 
     struct GlobalRequestMessage: Equatable {
@@ -773,6 +798,40 @@ extension ByteBuffer {
         }
     }
 
+    mutating func readUserAuthInfoRequestMessage() -> SSHMessage.UserAuthInfoRequestMessage? {
+        self.rewindReaderOnNil { `self` in
+            guard
+                let name = self.readSSHStringAsString(),
+                let instruction = self.readSSHStringAsString(),
+                let languageTag = self.readSSHStringAsString(),
+                let numPrompts = self.readInteger(as: UInt32.self)
+            else { return nil }
+
+            var prompts: [SSHMessage.UserAuthInfoRequestMessage.InfoPrompt] = []
+            prompts.reserveCapacity(Int(numPrompts))
+            for _ in 0 ..< numPrompts {
+                guard let prompt = self.readSSHStringAsString(),
+                      let echo = self.readSSHBoolean()
+                else { return nil }
+                prompts.append(.init(prompt: prompt, echo: echo))
+            }
+            return .init(name: name, instruction: instruction, languageTag: languageTag, prompts: prompts)
+        }
+    }
+
+    mutating func readUserAuthInfoResponseMessage() -> SSHMessage.UserAuthInfoResponseMessage? {
+        self.rewindReaderOnNil { `self` in
+            guard let numResponses = self.readInteger(as: UInt32.self) else { return nil }
+            var responses: [String] = []
+            responses.reserveCapacity(Int(numResponses))
+            for _ in 0 ..< numResponses {
+                guard let response = self.readSSHStringAsString() else { return nil }
+                responses.append(response)
+            }
+            return .init(responses: responses)
+        }
+    }
+
     mutating func readGlobalRequestMessage() throws -> SSHMessage.GlobalRequestMessage? {
         self.rewindReaderOnNil { `self` in
             guard
@@ -1170,6 +1229,12 @@ extension ByteBuffer {
         case .userAuthPKOK(let message):
             writtenBytes += self.writeInteger(SSHMessage.UserAuthPKOKMessage.id)
             writtenBytes += self.writeUserAuthPKOKMessage(message)
+        case .userAuthInfoRequest(let message):
+            writtenBytes += self.writeInteger(SSHMessage.UserAuthInfoRequestMessage.id)
+            writtenBytes += self.writeUserAuthInfoRequestMessage(message)
+        case .userAuthInfoResponse(let message):
+            writtenBytes += self.writeInteger(SSHMessage.UserAuthInfoResponseMessage.id)
+            writtenBytes += self.writeUserAuthInfoResponseMessage(message)
         case .globalRequest(let message):
             writtenBytes += self.writeInteger(SSHMessage.GlobalRequestMessage.id)
             writtenBytes += self.writeGlobalRequestMessage(message)
@@ -1343,6 +1408,27 @@ extension ByteBuffer {
             buffer.writeSSHHostKey(message.key)
         }
         return writtenBytes
+    }
+
+    mutating func writeUserAuthInfoRequestMessage(_ message: SSHMessage.UserAuthInfoRequestMessage) -> Int {
+        var written = 0
+        written += self.writeSSHString(message.name.utf8)
+        written += self.writeSSHString(message.instruction.utf8)
+        written += self.writeSSHString(message.languageTag.utf8)
+        written += self.writeInteger(UInt32(message.prompts.count))
+        for prompt in message.prompts {
+            written += self.writeSSHString(prompt.prompt.utf8)
+            written += self.writeSSHBoolean(prompt.echo)
+        }
+        return written
+    }
+
+    mutating func writeUserAuthInfoResponseMessage(_ message: SSHMessage.UserAuthInfoResponseMessage) -> Int {
+        var written = self.writeInteger(UInt32(message.responses.count))
+        for response in message.responses {
+            written += self.writeSSHString(response.utf8)
+        }
+        return written
     }
 
     mutating func writeGlobalRequestMessage(_ message: SSHMessage.GlobalRequestMessage) -> Int {

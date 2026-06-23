@@ -14,6 +14,20 @@
 
 import NIOCore
 
+/// A single prompt field in a keyboard-interactive (RFC 4256) challenge.
+///
+/// `prompt` is the human-readable question to display; `echo` indicates whether
+/// the user's input should be echoed on screen (e.g. `false` for passwords).
+public struct NIOSSHKeyboardInteractivePromptField: Sendable, Equatable {
+    public let prompt: String
+    public let echo: Bool
+
+    public init(prompt: String, echo: Bool) {
+        self.prompt = prompt
+        self.echo = echo
+    }
+}
+
 /// A ``NIOSSHClientUserAuthenticationDelegate`` is an object that can provide a sequence of
 /// SSH user authentication methods based on the the acceptable list from the server.
 ///
@@ -35,4 +49,17 @@ public protocol NIOSSHClientUserAuthenticationDelegate {
     ///     - availableMethods: The authentication methods the server is willing to accept.
     ///     - nextChallengePromise: An `EventLoopPromise` to be fulfilled with the next authentication offer.
     func nextAuthenticationType(availableMethods: NIOSSHAvailableUserAuthenticationMethods, nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>)
+}
+
+public extension NIOSSHClientUserAuthenticationDelegate {
+    /// Called when the server issues a keyboard-interactive (RFC 4256) challenge.
+    /// Fulfil `responsePromise` with one response per prompt, or `nil` to abort.
+    func nextKeyboardInteractiveResponse(
+        name: String,
+        instruction: String,
+        prompts: [NIOSSHKeyboardInteractivePromptField],
+        responsePromise: EventLoopPromise<[String]?>
+    ) {
+        responsePromise.succeed(nil) // default: cannot answer → abort this method
+    }
 }

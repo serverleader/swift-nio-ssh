@@ -49,6 +49,15 @@ public protocol NIOSSHClientUserAuthenticationDelegate {
     ///     - availableMethods: The authentication methods the server is willing to accept.
     ///     - nextChallengePromise: An `EventLoopPromise` to be fulfilled with the next authentication offer.
     func nextAuthenticationType(availableMethods: NIOSSHAvailableUserAuthenticationMethods, nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>)
+
+    /// Called when the server issues a keyboard-interactive (RFC 4256) challenge.
+    /// Fulfil `responsePromise` with one response per prompt, or `nil` to abort.
+    func nextKeyboardInteractiveResponse(
+        name: String,
+        instruction: String,
+        prompts: [NIOSSHKeyboardInteractivePromptField],
+        responsePromise: EventLoopPromise<[String]?>
+    )
 }
 
 public extension NIOSSHClientUserAuthenticationDelegate {

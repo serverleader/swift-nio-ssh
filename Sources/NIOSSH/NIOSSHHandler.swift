@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+import Foundation // [SSH-OTP] temporary: NSLog diagnostic for post-auth channel teardown
 import NIOCore
 
 /// A `ChannelDuplexHandler` that implements the SSH protocol.
@@ -119,6 +120,7 @@ extension NIOSSHHandler: ChannelDuplexHandler {
     }
 
     public func handlerRemoved(context: ChannelHandlerContext) {
+        NSLog("[SSH-OTP] NIOSSH handlerRemoved (multiplexer nil'd) channelActive=\(context.channel.isActive) stack=\(Thread.callStackSymbols.dropFirst().prefix(8).joined(separator: " | "))")
         self.context = nil
 
         // We don't actually need to nil out the multiplexer here (it will nil its reference to us)
@@ -152,6 +154,7 @@ extension NIOSSHHandler: ChannelDuplexHandler {
     }
 
     public func channelInactive(context: ChannelHandlerContext) {
+        NSLog("[SSH-OTP] NIOSSH channelInactive — parent channel closed (multiplexer going inactive)")
         self.multiplexer?.parentChannelInactive()
     }
 
@@ -166,6 +169,7 @@ extension NIOSSHHandler: ChannelDuplexHandler {
                 try self.processInboundMessageResult(result, context: context)
             }
         } catch {
+            NSLog("[SSH-OTP] NIOSSH inbound processing error (this tears down the channel): \(error)")
             context.fireErrorCaught(error)
         }
     }
@@ -227,6 +231,7 @@ extension NIOSSHHandler: ChannelDuplexHandler {
             try self.handleGlobalRequestResponse(response)
         case .disconnect:
             // Welp, we immediately have to close.
+            NSLog("[SSH-OTP] NIOSSH received SSH_MSG_DISCONNECT from server — closing channel")
             context.close(promise: nil)
         case .event(let event):
             context.fireUserInboundEventTriggered(event)

@@ -21,6 +21,19 @@ struct UserAuthenticationStateMachine {
     private var sessionID: ByteBuffer
     private let role: SSHConnectionRole
 
+    /// Whether the client currently has an outstanding keyboard-interactive
+    /// authentication request in flight. While this is `true`, an inbound byte
+    /// 60 must be parsed as `SSH_MSG_USERAUTH_INFO_REQUEST` (RFC 4256) rather
+    /// than `SSH_MSG_USERAUTH_PK_OK` (RFC 4252), since the two share message
+    /// number 60. The parser reads this flag to disambiguate.
+    ///
+    /// Set when the client sends a keyboard-interactive `SSH_MSG_USERAUTH_REQUEST`,
+    /// and cleared on auth success or failure. It deliberately survives sending
+    /// an `SSH_MSG_USERAUTH_INFO_RESPONSE`, because the server may legally issue
+    /// a further `SSH_MSG_USERAUTH_INFO_REQUEST` (e.g. a retry after a wrong code)
+    /// while the same keyboard-interactive exchange is still outstanding.
+    private(set) var expectingKeyboardInteractive: Bool = false
+
     // TODO: The server SHOULD limit the number of authentication attempts the client may make.
     init(role: SSHConnectionRole, loop: EventLoop, sessionID: ByteBuffer) {
         self.state = .idle
@@ -151,6 +164,7 @@ extension UserAuthenticationStateMachine {
         switch (self.delegate, self.state) {
         case (.client, .awaitingResponses):
             // Great, we got a response, and it's a success! Disregard all future responses
+            self.expectingKeyboardInteractive = false
             self.state = .authenticationSucceeded
         case (.client, .authenticationSucceeded):
             // We should ignore all further auth messages in this state.
@@ -171,6 +185,8 @@ extension UserAuthenticationStateMachine {
         switch (self.delegate, self.state) {
         case (.client(let delegate), .awaitingResponses(let responseCount)):
             // Ok, the server didn't like that much. Let's try another one.
+            // Any keyboard-interactive exchange that was in flight is now over.
+            self.expectingKeyboardInteractive = false
             self.state = .awaitingNextRequest
             precondition(responseCount == 1, "We don't support parallel authentication attempts yet!")
             return self.requestNextAuthRequest(methods: .init(message), delegate: delegate)
@@ -200,6 +216,48 @@ extension UserAuthenticationStateMachine {
         default:
             // In all other instances, receiving user auth banner is legal and must be dealt with by client
             return
+        }
+    }
+
+    /// A keyboard-interactive `SSH_MSG_USERAUTH_INFO_REQUEST` (RFC 4256) was received.
+    ///
+    /// This is only valid for clients while a keyboard-interactive request is outstanding
+    /// (state `.awaitingResponses`). We hand the prompts to the client delegate and map its
+    /// answers into an `SSH_MSG_USERAUTH_INFO_RESPONSE`. The server may send more than one
+    /// info request in a single exchange (e.g. a retry after a wrong code), so we deliberately
+    /// remain in `.awaitingResponses` and keep `expectingKeyboardInteractive` set.
+    ///
+    /// A returned `nil` future-of-`nil` (delegate aborted) yields no response message; the
+    /// caller is responsible for letting the exchange fail.
+    mutating func receiveUserAuthInfoRequest(_ message: SSHMessage.UserAuthInfoRequestMessage) throws -> EventLoopFuture<SSHMessage.UserAuthInfoResponseMessage?>? {
+        switch (self.delegate, self.state) {
+        case (.client(let delegate), .awaitingResponses):
+            let prompts = message.prompts.map {
+                NIOSSHKeyboardInteractivePromptField(prompt: $0.prompt, echo: $0.echo)
+            }
+            let promise = self.loop.makePromise(of: [String]?.self)
+            delegate.nextKeyboardInteractiveResponse(
+                name: message.name,
+                instruction: message.instruction,
+                prompts: prompts,
+                responsePromise: promise
+            )
+            return promise.futureResult.map { responses in
+                responses.map { SSHMessage.UserAuthInfoResponseMessage(responses: $0) }
+            }
+        case (.client, .authenticationSucceeded):
+            // We should ignore all further auth messages in this state.
+            return nil
+        case (.client, .idle),
+             (.client, .awaitingServiceAcceptance),
+             (.client, .awaitingNextRequest),
+             (.client, .authenticationFailed):
+            // We received an info request while no keyboard-interactive request was outstanding.
+            throw NIOSSHError.protocolViolation(protocolName: Self.protocolName, violation: "unsolicited keyboard-interactive info request")
+        case (.server, _):
+            // Servers may never receive info request messages (they send them). Server-side
+            // keyboard-interactive is not implemented; this path is genuinely unreachable.
+            throw NIOSSHError.protocolViolation(protocolName: Self.protocolName, violation: "server received keyboard-interactive info request")
         }
     }
 }
@@ -241,9 +299,16 @@ extension UserAuthenticationStateMachine {
         }
     }
 
-    mutating func sendUserAuthRequest(_: SSHMessage.UserAuthRequestMessage) {
+    mutating func sendUserAuthRequest(_ message: SSHMessage.UserAuthRequestMessage) {
         switch (self.delegate, self.state) {
         case (.client, .awaitingNextRequest):
+            // Track whether this outstanding request is keyboard-interactive so the inbound
+            // parser can disambiguate byte 60 (INFO_REQUEST vs PK_OK) while it's in flight.
+            if case .keyboardInteractive = message.method {
+                self.expectingKeyboardInteractive = true
+            } else {
+                self.expectingKeyboardInteractive = false
+            }
             self.state = .awaitingResponses(1)
         case (.client, .idle),
              (.client, .awaitingServiceAcceptance):
@@ -420,7 +485,8 @@ private extension UserAuthenticationStateMachine {
             var validatedCertificate: NIOSSHCertifiedPublicKey? = nil
             if let certifiedKey = NIOSSHCertifiedPublicKey(key),
                case .server(let config) = self.role,
-               !config.trustedUserCAKeys.isEmpty {
+               !config.trustedUserCAKeys.isEmpty
+            {
                 // This is a certificate and we have trusted CAs configured
                 do {
                     let criticalOptions = try certifiedKey.validate(
@@ -429,7 +495,7 @@ private extension UserAuthenticationStateMachine {
                         allowedAuthoritySigningKeys: config.trustedUserCAKeys,
                         acceptableCriticalOptions: config.acceptableCriticalOptions
                     )
-                    
+
                     // Certificate is valid, store it to pass to the delegate
                     validatedCertificate = certifiedKey
                 } catch {
@@ -456,7 +522,8 @@ private extension UserAuthenticationStateMachine {
             // For certificates, we should validate them before saying they're OK
             if let certifiedKey = NIOSSHCertifiedPublicKey(key),
                case .server(let config) = self.role,
-               !config.trustedUserCAKeys.isEmpty {
+               !config.trustedUserCAKeys.isEmpty
+            {
                 // This is a certificate and we have trusted CAs configured
                 do {
                     _ = try certifiedKey.validate(

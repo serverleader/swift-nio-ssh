@@ -58,16 +58,18 @@ struct SSHConnectionStateMachine {
     }
 
     class Attributes {
-        var username: String? = nil
+        var username: String?
     }
-    
+
     /// The state of this state machine.
     private var state: State
-    
+
     /// Attributes of the connection which can be changed by messages handlers
     private let attributes: Attributes
-    
-    var username: String? { attributes.username }
+
+    var username: String? {
+        self.attributes.username
+    }
 
     static let bundledTransportProtectionSchemes: [NIOSSHTransportProtection.Type] = [
         AES256GCMOpenSSHTransportProtection.self, AES128GCMOpenSSHTransportProtection.self,
@@ -75,7 +77,7 @@ struct SSHConnectionStateMachine {
 
     init(role: SSHConnectionRole) {
         self.attributes = Attributes()
-        self.state = .idle(IdleState(role: role, attributes: attributes))
+        self.state = .idle(IdleState(role: role, attributes: self.attributes))
     }
 
     func start() -> SSHMultiMessage? {
@@ -138,6 +140,7 @@ struct SSHConnectionStateMachine {
         switch self.state {
         case .idle:
             preconditionFailure("Received messages before sending our first message.")
+
         case .sentVersion(var state):
             guard let message = try state.parser.nextPacket() else {
                 return nil
@@ -161,6 +164,7 @@ struct SSHConnectionStateMachine {
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "transport", violation: "Did not receive version message")
             }
+
         case .keyExchange(var state):
             guard let message = try state.parser.nextPacket() else {
                 self.state = .keyExchange(state)
@@ -193,7 +197,6 @@ struct SSHConnectionStateMachine {
                 return .noMessage
             case .unimplemented(let unimplemented):
                 throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
-
             default:
                 // TODO: enforce RFC 4253:
                 //
@@ -213,6 +216,7 @@ struct SSHConnectionStateMachine {
                 // We should enforce that, but right now we don't have a good mechanism by which to do so.
                 throw NIOSSHError.protocolViolation(protocolName: "user auth", violation: "Unexpected user auth message: \(message)")
             }
+
         case .sentNewKeys(var state):
             guard let message = try state.parser.nextPacket() else {
                 self.state = .sentNewKeys(state)
@@ -245,7 +249,6 @@ struct SSHConnectionStateMachine {
                 return .noMessage
             case .unimplemented(let unimplemented):
                 throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
-
             default:
                 // TODO: enforce RFC 4253:
                 //
@@ -301,7 +304,9 @@ struct SSHConnectionStateMachine {
 
         case .userAuthentication(var state):
             // In this state we tolerate receiving user auth messages.
-            guard let message = try state.parser.nextPacket() else {
+            // While a keyboard-interactive request is in flight we must parse byte 60 as
+            // SSH_MSG_USERAUTH_INFO_REQUEST (RFC 4256) rather than SSH_MSG_USERAUTH_PK_OK.
+            guard let message = try state.parser.nextPacket(expectingKeyboardInteractive: state.userAuthStateMachine.expectingKeyboardInteractive) else {
                 self.state = .userAuthentication(state)
                 return nil
             }
@@ -335,6 +340,11 @@ struct SSHConnectionStateMachine {
 
             case .userAuthBanner(let message):
                 let result = try state.receiveUserAuthBanner(message)
+                self.state = .userAuthentication(state)
+                return result
+
+            case .userAuthInfoRequest(let message):
+                let result = try state.receiveUserAuthInfoRequest(message)
                 self.state = .userAuthentication(state)
                 return result
 
@@ -410,7 +420,6 @@ struct SSHConnectionStateMachine {
                 return .noMessage
             case .unimplemented(let unimplemented):
                 throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
-
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "connection", violation: "Unexpected inbound message: \(message)")
             }
@@ -476,7 +485,6 @@ struct SSHConnectionStateMachine {
                 let result = try state.receiveKeyExchangeMessage(message)
                 self.state = .rekeying(.init(state))
                 return result
-
             case .channelOpen(let message):
                 try state.receiveChannelOpen(message)
             case .channelOpenConfirmation(let message):
@@ -520,7 +528,6 @@ struct SSHConnectionStateMachine {
                 return .noMessage
             case .unimplemented(let unimplemented):
                 throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
-
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "connection", violation: "Unexpected inbound message: \(message)")
             }
@@ -635,7 +642,6 @@ struct SSHConnectionStateMachine {
                 return .noMessage
             case .unimplemented(let unimplemented):
                 throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
-
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "connection", violation: "Unexpected inbound message: \(message)")
             }
@@ -677,7 +683,6 @@ struct SSHConnectionStateMachine {
                 return .noMessage
             case .unimplemented(let unimplemented):
                 throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
-
             default:
                 // TODO: enforce RFC 4253:
                 //
@@ -736,12 +741,15 @@ struct SSHConnectionStateMachine {
             case .keyExchange(let keyExchangeMessage):
                 try kex.writeKeyExchangeMessage(keyExchangeMessage, into: &buffer)
                 self.state = .keyExchange(kex)
+
             case .keyExchangeInit(let kexInit):
                 try kex.writeKeyExchangeInitMessage(kexInit, into: &buffer)
                 self.state = .keyExchange(kex)
+
             case .keyExchangeReply(let kexReply):
                 try kex.writeKeyExchangeReplyMessage(kexReply, into: &buffer)
                 self.state = .keyExchange(kex)
+
             case .newKeys:
                 try kex.writeNewKeysMessage(into: &buffer)
                 let newState = SentNewKeysState(keyExchangeState: kex, loop: loop)
@@ -770,12 +778,15 @@ struct SSHConnectionStateMachine {
             case .keyExchange(let keyExchangeMessage):
                 try kex.writeKeyExchangeMessage(keyExchangeMessage, into: &buffer)
                 self.state = .receivedNewKeys(kex)
+
             case .keyExchangeInit(let kexInit):
                 try kex.writeKeyExchangeInitMessage(kexInit, into: &buffer)
                 self.state = .receivedNewKeys(kex)
+
             case .keyExchangeReply(let kexReply):
                 try kex.writeKeyExchangeReplyMessage(kexReply, into: &buffer)
                 self.state = .receivedNewKeys(kex)
+
             case .newKeys:
                 try kex.writeNewKeysMessage(into: &buffer)
 
@@ -853,6 +864,10 @@ struct SSHConnectionStateMachine {
 
             case .userAuthPKOK(let message):
                 try state.writeUserAuthPKOK(message, into: &buffer)
+                self.state = .userAuthentication(state)
+
+            case .userAuthInfoResponse(let message):
+                try state.writeUserAuthInfoResponse(message, into: &buffer)
                 self.state = .userAuthentication(state)
 
             case .disconnect:
@@ -949,12 +964,15 @@ struct SSHConnectionStateMachine {
             case .keyExchange(let keyExchangeMessage):
                 try state.writeKeyExchangeMessage(keyExchangeMessage, into: &buffer)
                 self.state = .rekeying(state)
+
             case .keyExchangeInit(let kexInit):
                 try state.writeKeyExchangeInitMessage(kexInit, into: &buffer)
                 self.state = .rekeying(state)
+
             case .keyExchangeReply(let kexReply):
                 try state.writeKeyExchangeReplyMessage(kexReply, into: &buffer)
                 self.state = .rekeying(state)
+
             case .newKeys:
                 try state.writeNewKeysMessage(into: &buffer)
                 self.state = .rekeyingSentNewKeysState(.init(state))
@@ -977,12 +995,15 @@ struct SSHConnectionStateMachine {
             case .keyExchange(let keyExchangeMessage):
                 try state.writeKeyExchangeMessage(keyExchangeMessage, into: &buffer)
                 self.state = .rekeyingReceivedNewKeysState(state)
+
             case .keyExchangeInit(let kexInit):
                 try state.writeKeyExchangeInitMessage(kexInit, into: &buffer)
                 self.state = .rekeyingReceivedNewKeysState(state)
+
             case .keyExchangeReply(let kexReply):
                 try state.writeKeyExchangeReplyMessage(kexReply, into: &buffer)
                 self.state = .rekeyingReceivedNewKeysState(state)
+
             case .newKeys:
                 try state.writeNewKeysMessage(into: &buffer)
                 self.state = .active(.init(state))
@@ -1077,7 +1098,7 @@ extension SSHConnectionStateMachine {
 // MARK: Rekeying
 
 extension SSHConnectionStateMachine {
-    // Called when we wish to re-key the connection.
+    /// Called when we wish to re-key the connection.
     mutating func beginRekeying(buffer: inout ByteBuffer, allocator: ByteBufferAllocator, loop: EventLoop) throws {
         switch self.state {
         case .active(let state):

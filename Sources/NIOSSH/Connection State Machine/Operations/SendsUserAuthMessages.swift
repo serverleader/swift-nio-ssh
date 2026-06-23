@@ -55,4 +55,8 @@ extension SendsUserAuthMessages {
         self.userAuthStateMachine.sendUserAuthPKOK(message)
         try self.serializer.serialize(message: .userAuthPKOK(message), to: &buffer)
     }
+
+    mutating func writeUserAuthInfoResponse(_ message: SSHMessage.UserAuthInfoResponseMessage, into buffer: inout ByteBuffer) throws {
+        try self.serializer.serialize(message: .userAuthInfoResponse(message), to: &buffer)
+    }
 }

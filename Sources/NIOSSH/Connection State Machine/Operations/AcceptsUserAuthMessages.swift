@@ -18,7 +18,7 @@ protocol AcceptsUserAuthMessages {
     var userAuthStateMachine: UserAuthenticationStateMachine { get set }
 
     var connectionAttributes: SSHConnectionStateMachine.Attributes { get }
-    
+
     var role: SSHConnectionRole { get }
 }
 
@@ -64,7 +64,7 @@ extension AcceptsUserAuthMessages {
 
     mutating func receiveUserAuthRequest(_ message: SSHMessage.UserAuthRequestMessage) throws -> SSHConnectionStateMachine.StateMachineInboundProcessResult {
         let result = try self.userAuthStateMachine.receiveUserAuthRequest(message)
-        
+
         if let future = result {
             var banner: SSHServerConfiguration.UserAuthBanner?
             if case .server(let config) = role {
@@ -101,11 +101,21 @@ extension AcceptsUserAuthMessages {
         return .event(NIOUserAuthBannerEvent(message: message.message, languageTag: message.languageTag))
     }
 
+    mutating func receiveUserAuthInfoRequest(_ message: SSHMessage.UserAuthInfoRequestMessage) throws -> SSHConnectionStateMachine.StateMachineInboundProcessResult {
+        let result = try self.userAuthStateMachine.receiveUserAuthInfoRequest(message)
+
+        if let future = result {
+            return .possibleFutureMessage(future.map { $0.map { SSHMultiMessage(.userAuthInfoResponse($0)) } })
+        } else {
+            return .noMessage
+        }
+    }
+
     private static func transform(_ result: NIOSSHUserAuthenticationResponseMessage, connectionAttributes: SSHConnectionStateMachine.Attributes?, username: String, banner: SSHServerConfiguration.UserAuthBanner? = nil) -> SSHMultiMessage {
         switch result {
         case .success:
             connectionAttributes?.username = username
-            
+
             if let banner = banner {
                 // Send banner bundled with auth success to avoid leaking any information to unauthenticated clients.
                 // Note that this is by no means the only option according to RFC 4252

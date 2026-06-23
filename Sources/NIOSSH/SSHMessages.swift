@@ -118,30 +118,30 @@ extension SSHMessage {
         static let id: UInt8 = 21
     }
 
-    // RFC 5656 § 4
+    /// RFC 5656 § 4
     struct KeyExchangeECDHInitMessage: Equatable {
-        // SSH_MSG_KEX_ECDH_INIT
+        /// SSH_MSG_KEX_ECDH_INIT
         static let id: UInt8 = 30
 
-        // Q_C, client's ephemeral public key octet string
+        /// Q_C, client's ephemeral public key octet string
         var publicKey: ByteBuffer
     }
 
-    // RFC 5656 § 4
+    /// RFC 5656 § 4
     struct KeyExchangeECDHReplyMessage: Equatable {
-        // SSH_MSG_KEX_ECDH_REPLY
+        /// SSH_MSG_KEX_ECDH_REPLY
         static let id: UInt8 = 31
 
-        // K_S, server's public host key
+        /// K_S, server's public host key
         var hostKey: NIOSSHPublicKey
-        // Q_S, server's ephemeral public key octet string
+        /// Q_S, server's ephemeral public key octet string
         var publicKey: ByteBuffer
-        // the signature on the exchange hash
+        /// the signature on the exchange hash
         var signature: NIOSSHSignature
     }
 
     struct UserAuthRequestMessage: Equatable {
-        // SSH_MSG_USERAUTH_REQUEST
+        /// SSH_MSG_USERAUTH_REQUEST
         static let id: UInt8 = 50
 
         enum Method: Equatable {
@@ -162,7 +162,7 @@ extension SSHMessage {
     }
 
     struct UserAuthFailureMessage: Equatable {
-        // SSH_MSG_USERAUTH_FAILURE
+        /// SSH_MSG_USERAUTH_FAILURE
         static let id: UInt8 = 51
 
         var authentications: [Substring]
@@ -174,7 +174,7 @@ extension SSHMessage {
     }
 
     struct UserAuthBannerMessage: Equatable {
-        // SSH_MSG_USERAUTH_BANNER
+        /// SSH_MSG_USERAUTH_BANNER
         static let id: UInt8 = 53
 
         /// message to display to user in client, encoded as ISO-10646 UTF-8 following RFC 3629
@@ -185,15 +185,15 @@ extension SSHMessage {
     }
 
     struct UserAuthPKOKMessage: Equatable {
-        // SSH_MSG_USERAUTH_PK_OK
+        /// SSH_MSG_USERAUTH_PK_OK
         static let id: UInt8 = 60
 
         var key: NIOSSHPublicKey
     }
 
     struct UserAuthInfoRequestMessage: Equatable {
-        // SSH_MSG_USERAUTH_INFO_REQUEST (RFC 4256). Shares byte 60 with PK_OK;
-        // disambiguated by in-flight auth method at parse time.
+        /// SSH_MSG_USERAUTH_INFO_REQUEST (RFC 4256). Shares byte 60 with PK_OK;
+        /// disambiguated by in-flight auth method at parse time.
         static let id: UInt8 = 60
 
         struct InfoPrompt: Equatable {
@@ -208,14 +208,14 @@ extension SSHMessage {
     }
 
     struct UserAuthInfoResponseMessage: Equatable {
-        // SSH_MSG_USERAUTH_INFO_RESPONSE (RFC 4256)
+        /// SSH_MSG_USERAUTH_INFO_RESPONSE (RFC 4256)
         static let id: UInt8 = 61
 
         var responses: [String]
     }
 
     struct GlobalRequestMessage: Equatable {
-        // SSH_MSG_GLOBAL_REQUEST
+        /// SSH_MSG_GLOBAL_REQUEST
         static let id: UInt8 = 80
 
         enum RequestType: Equatable {
@@ -239,10 +239,10 @@ extension SSHMessage {
     }
 
     struct ChannelOpenMessage: Equatable {
-        // SSH_MSG_CHANNEL_OPEN
+        /// SSH_MSG_CHANNEL_OPEN
         static let id: UInt8 = 90
 
-        // https://www.iana.org/assignments/ssh-parameters/ssh-parameters.xhtml#ssh-parameters-11
+        /// https://www.iana.org/assignments/ssh-parameters/ssh-parameters.xhtml#ssh-parameters-11
         enum ChannelType: Equatable {
             case session
             case forwardedTCPIP(ForwardedTCPIP)
@@ -268,7 +268,7 @@ extension SSHMessage {
     }
 
     struct ChannelOpenConfirmationMessage: Equatable {
-        // SSH_MSG_CHANNEL_OPEN_CONFIRMATION
+        /// SSH_MSG_CHANNEL_OPEN_CONFIRMATION
         static let id: UInt8 = 91
 
         var recipientChannel: UInt32
@@ -278,7 +278,7 @@ extension SSHMessage {
     }
 
     struct ChannelOpenFailureMessage: Equatable {
-        // SSH_MSG_CHANNEL_OPEN_FAILURE
+        /// SSH_MSG_CHANNEL_OPEN_FAILURE
         static let id: UInt8 = 92
 
         var recipientChannel: UInt32
@@ -288,7 +288,7 @@ extension SSHMessage {
     }
 
     struct ChannelWindowAdjustMessage: Equatable {
-        // SSH_MSG_CHANNEL_WINDOW_ADJUST
+        /// SSH_MSG_CHANNEL_WINDOW_ADJUST
         static let id: UInt8 = 93
 
         var recipientChannel: UInt32
@@ -296,7 +296,7 @@ extension SSHMessage {
     }
 
     struct ChannelDataMessage: Equatable {
-        // SSH_MSG_CHANNEL_DATA
+        /// SSH_MSG_CHANNEL_DATA
         static let id: UInt8 = 94
 
         var recipientChannel: UInt32
@@ -304,7 +304,7 @@ extension SSHMessage {
     }
 
     struct ChannelExtendedDataMessage: Equatable {
-        // SSH_MSG_CHANNEL_EXTENDED_DATA
+        /// SSH_MSG_CHANNEL_EXTENDED_DATA
         static let id: UInt8 = 95
 
         enum Code: UInt32 {
@@ -317,21 +317,21 @@ extension SSHMessage {
     }
 
     struct ChannelEOFMessage: Equatable {
-        // SSH_MSG_CHANNEL_EOF
+        /// SSH_MSG_CHANNEL_EOF
         static let id: UInt8 = 96
 
         var recipientChannel: UInt32
     }
 
     struct ChannelCloseMessage: Equatable {
-        // SSH_MSG_CHANNEL_CLOSE
+        /// SSH_MSG_CHANNEL_CLOSE
         static let id: UInt8 = 97
 
         var recipientChannel: UInt32
     }
 
     struct ChannelRequestMessage: Equatable {
-        // SSH_MSG_CHANNEL_REQUEST
+        /// SSH_MSG_CHANNEL_REQUEST
         static let id: UInt8 = 98
 
         enum RequestType: Equatable {
@@ -370,14 +370,14 @@ extension SSHMessage {
     }
 
     struct ChannelSuccessMessage: Equatable {
-        // SSH_MSG_CHANNEL_SUCCESS
+        /// SSH_MSG_CHANNEL_SUCCESS
         static let id: UInt8 = 99
 
         var recipientChannel: UInt32
     }
 
     struct ChannelFailureMessage: Equatable {
-        // SSH_MSG_CHANNEL_FAILURE
+        /// SSH_MSG_CHANNEL_FAILURE
         static let id: UInt8 = 100
 
         var recipientChannel: UInt32
@@ -391,7 +391,13 @@ extension ByteBuffer {
     ///
     /// This function will consume as many bytes as the message should require. If it cannot read enough bytes,
     /// it will return nil.
-    mutating func readSSHMessage() throws -> SSHMessage? {
+    /// Read an SSHMessage from a ByteBuffer.
+    ///
+    /// - parameter expectingKeyboardInteractive: When `true`, an inbound message number 60 is
+    ///   parsed as `SSH_MSG_USERAUTH_INFO_REQUEST` (RFC 4256); otherwise it is parsed as
+    ///   `SSH_MSG_USERAUTH_PK_OK` (RFC 4252). The two share message number 60 and can only be
+    ///   distinguished by the authentication method the client currently has in flight.
+    mutating func readSSHMessage(expectingKeyboardInteractive: Bool = false) throws -> SSHMessage? {
         try self.rewindOnNilOrError { `self` in
             guard let type = self.readInteger(as: UInt8.self) else {
                 return nil
@@ -463,10 +469,21 @@ extension ByteBuffer {
                 }
                 return .userAuthBanner(message)
             case SSHMessage.UserAuthPKOKMessage.id:
-                guard let message = try self.readUserAuthPKOKMessage() else {
-                    return nil
+                // Message number 60 is shared between SSH_MSG_USERAUTH_PK_OK (RFC 4252) and
+                // SSH_MSG_USERAUTH_INFO_REQUEST (RFC 4256). They can only be disambiguated by the
+                // authentication method the client currently has in flight, which the caller
+                // signals via `expectingKeyboardInteractive`.
+                if expectingKeyboardInteractive {
+                    guard let message = self.readUserAuthInfoRequestMessage() else {
+                        return nil
+                    }
+                    return .userAuthInfoRequest(message)
+                } else {
+                    guard let message = try self.readUserAuthPKOKMessage() else {
+                        return nil
+                    }
+                    return .userAuthPKOK(message)
                 }
-                return .userAuthPKOK(message)
             case SSHMessage.GlobalRequestMessage.id:
                 guard let message = try self.readGlobalRequestMessage() else {
                     return nil
@@ -1100,12 +1117,12 @@ extension ByteBuffer {
                     return nil
                 }
 
-                type = .ptyReq(.init(termVariable: termVariable,
-                                     characterWidth: termWidth,
-                                     rowHeight: termHeight,
-                                     pixelWidth: pixelWidth,
-                                     pixelHeight: pixelHeight,
-                                     terminalModes: try encodedTerminalModes.readSSHTerminalModes()))
+                type = try .ptyReq(.init(termVariable: termVariable,
+                                         characterWidth: termWidth,
+                                         rowHeight: termHeight,
+                                         pixelWidth: pixelWidth,
+                                         pixelHeight: pixelHeight,
+                                         terminalModes: encodedTerminalModes.readSSHTerminalModes()))
             case "shell":
                 type = .shell
             case "subsystem":
@@ -1129,7 +1146,6 @@ extension ByteBuffer {
                     return nil
                 }
                 type = .xonXoff(clientCanDo)
-
             case "signal":
                 guard let signalName = self.readSSHStringAsString() else {
                     return nil
@@ -1380,13 +1396,12 @@ extension ByteBuffer {
                     buffer.writeSSHSignature(signature)
                 }
             }
-
         case .publicKey(.unknown):
             preconditionFailure("We cannot write user auth request messages on unknown keys")
         case .keyboardInteractive(let submethods):
             writtenBytes += self.writeSSHString("keyboard-interactive".utf8)
-            writtenBytes += self.writeSSHString("".utf8)          // language tag (RFC 4256)
-            writtenBytes += self.writeSSHString(submethods.utf8)  // submethods
+            writtenBytes += self.writeSSHString("".utf8) // language tag (RFC 4256)
+            writtenBytes += self.writeSSHString(submethods.utf8) // submethods
         }
 
         return writtenBytes
@@ -1665,7 +1680,7 @@ extension ByteBuffer {
 /// This collection is never _empty_: if you have one, there must be at least one message in it. This is a
 /// convenience feature that ensures that we know that the presence of this object implies the existence of
 /// at least one message.
-internal struct SSHMultiMessage {
+struct SSHMultiMessage {
     private var _first: SSHMessage
 
     private var _second: SSHMessage?
@@ -1730,7 +1745,7 @@ extension SSHMultiMessage.Index: Comparable {
     }
 }
 
-// We use Int as a stride type here just because it's easier.
+/// We use Int as a stride type here just because it's easier.
 extension SSHMultiMessage.Index: Strideable {
     func advanced(by n: Int) -> SSHMultiMessage.Index {
         Self(UInt8(Int(self._baseIndex) + n))

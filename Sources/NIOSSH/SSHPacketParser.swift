@@ -27,10 +27,10 @@ struct SSHPacketParser {
     private var state: State
     private var sequenceNumber: UInt32 = 0
     private let maximumPacketSize: Int
-    internal static let defaultMaximumPacketSize = 1 << 17
+    static let defaultMaximumPacketSize = 1 << 17
 
     /// Testing only: the number of bytes we can discard from this buffer.
-    internal var _discardableBytes: Int {
+    var _discardableBytes: Int {
         self.buffer.readerIndex
     }
 
@@ -62,7 +62,13 @@ struct SSHPacketParser {
         }
     }
 
-    mutating func nextPacket() throws -> SSHMessage? {
+    /// Parse the next packet, if a complete one is available.
+    ///
+    /// - parameter expectingKeyboardInteractive: Forwarded to the message decoder so that an
+    ///   inbound message number 60 is disambiguated between `SSH_MSG_USERAUTH_PK_OK` and
+    ///   `SSH_MSG_USERAUTH_INFO_REQUEST` (RFC 4256), which share that number. The connection
+    ///   state machine sets this based on whether a keyboard-interactive request is in flight.
+    mutating func nextPacket(expectingKeyboardInteractive: Bool = false) throws -> SSHMessage? {
         // This parser has a slightly strange strategy: we leave the packet length field in the buffer until we're done.
         // This is necessary because some transport protection schemes need the length field for MACing purposes, and can
         // benefit from us maintaining the state instead of having to do it themselves.
@@ -83,7 +89,7 @@ struct SSHPacketParser {
                     throw NIOSSHError.invalidEncryptedPacketLength
                 }
 
-                if let message = try self.parsePlaintext(length: length) {
+                if let message = try self.parsePlaintext(length: length, expectingKeyboardInteractive: expectingKeyboardInteractive) {
                     self.state = .cleartextWaitingForLength
                     self.sequenceNumber = self.sequenceNumber &+ 1
                     return message
@@ -93,7 +99,7 @@ struct SSHPacketParser {
             }
             return nil
         case .cleartextWaitingForBytes(let length):
-            if let message = try self.parsePlaintext(length: length) {
+            if let message = try self.parsePlaintext(length: length, expectingKeyboardInteractive: expectingKeyboardInteractive) {
                 self.state = .cleartextWaitingForLength
                 self.sequenceNumber = self.sequenceNumber &+ 1
                 return message
@@ -104,7 +110,7 @@ struct SSHPacketParser {
                 return nil
             }
 
-            if let message = try self.parseCiphertext(length: length, protection: protection) {
+            if let message = try self.parseCiphertext(length: length, protection: protection, expectingKeyboardInteractive: expectingKeyboardInteractive) {
                 self.state = .encryptedWaitingForLength(protection)
                 self.sequenceNumber = self.sequenceNumber &+ 1
                 return message
@@ -112,7 +118,7 @@ struct SSHPacketParser {
             self.state = .encryptedWaitingForBytes(length, protection)
             return nil
         case .encryptedWaitingForBytes(let length, let protection):
-            if let message = try self.parseCiphertext(length: length, protection: protection) {
+            if let message = try self.parseCiphertext(length: length, protection: protection, expectingKeyboardInteractive: expectingKeyboardInteractive) {
                 self.state = .encryptedWaitingForLength(protection)
                 self.sequenceNumber = self.sequenceNumber &+ 1
                 return message
@@ -127,7 +133,7 @@ struct SSHPacketParser {
         }
     }
 
-    internal static let maximumAllowedVersionSize = 4096
+    static let maximumAllowedVersionSize = 4096
     private mutating func readVersion() throws -> String? {
         // Looking for a complete SSH version string, potentially with pre-lines
         let slice = self.buffer.readableBytesView
@@ -138,7 +144,7 @@ struct SSHPacketParser {
         let maxIndex = slice.index(slice.startIndex, offsetBy: min(slice.count, Self.maximumAllowedVersionSize))
 
         var lastLineEndIndex: ByteBufferView.Index?
-        
+
         for index in slice.startIndex ..< slice.endIndex {
             if index > maxIndex {
                 // Does not account for `CRLF`
@@ -147,12 +153,12 @@ struct SSHPacketParser {
 
             if slice[index] == 10 { // Found a line ending
                 let lineStartIndex = lastLineEndIndex?.advanced(by: 1) ?? slice.startIndex
-                let lineSlice = slice[lineStartIndex..<index]
-                
+                let lineSlice = slice[lineStartIndex ..< index]
+
                 // Check if this line looks like an SSH version (any SSH version, not just 2.0)
-                if lineSlice.count >= 4 && lineSlice.starts(with: "SSH-".utf8) {
+                if lineSlice.count >= 4, lineSlice.starts(with: "SSH-".utf8) {
                     // Found SSH version line, return everything up to and including this line
-                    var version = String(decoding: slice[slice.startIndex..<index], as: UTF8.self)
+                    var version = String(decoding: slice[slice.startIndex ..< index], as: UTF8.self)
                     // read including \n
                     self.buffer.moveReaderIndex(forwardBy: slice.startIndex.distance(to: index).advanced(by: 1))
                     // Remove the trailing \r if present (but keep \n removal logic for consistency)
@@ -161,7 +167,7 @@ struct SSHPacketParser {
                     }
                     return version
                 }
-                
+
                 lastLineEndIndex = index
             }
         }
@@ -188,7 +194,7 @@ struct SSHPacketParser {
         return decryptedLength
     }
 
-    private mutating func parsePlaintext(length: UInt32) throws -> SSHMessage? {
+    private mutating func parsePlaintext(length: UInt32, expectingKeyboardInteractive: Bool) throws -> SSHMessage? {
         try self.buffer.rewindReaderOnError { buffer in
             guard var buffer = buffer.readSlice(length: Int(length) + MemoryLayout<UInt32>.size) else {
                 return nil
@@ -198,7 +204,7 @@ struct SSHPacketParser {
             buffer.moveReaderIndex(forwardBy: MemoryLayout<UInt32>.size)
 
             var content = try buffer.sliceContentFromPadding()
-            guard let message = try content.readSSHMessage(), content.readableBytes == 0, buffer.readableBytes == 0 else {
+            guard let message = try content.readSSHMessage(expectingKeyboardInteractive: expectingKeyboardInteractive), content.readableBytes == 0, buffer.readableBytes == 0 else {
                 // Throw this error if the content wasn't exactly the right length for the message.
                 throw NIOSSHError.invalidPacketFormat
             }
@@ -207,14 +213,14 @@ struct SSHPacketParser {
         }
     }
 
-    private mutating func parseCiphertext(length: UInt32, protection: NIOSSHTransportProtection) throws -> SSHMessage? {
+    private mutating func parseCiphertext(length: UInt32, protection: NIOSSHTransportProtection, expectingKeyboardInteractive: Bool) throws -> SSHMessage? {
         try self.buffer.rewindReaderOnError { buffer in
             guard var buffer = buffer.readSlice(length: Int(length) + MemoryLayout<UInt32>.size) else {
                 return nil
             }
 
-            var content = try protection.decryptAndVerifyRemainingPacket(&buffer, sequenceNumber: sequenceNumber)
-            guard let message = try content.readSSHMessage(), content.readableBytes == 0, buffer.readableBytes == 0 else {
+            var content = try protection.decryptAndVerifyRemainingPacket(&buffer, sequenceNumber: self.sequenceNumber)
+            guard let message = try content.readSSHMessage(expectingKeyboardInteractive: expectingKeyboardInteractive), content.readableBytes == 0, buffer.readableBytes == 0 else {
                 // Throw this error if the content wasn't exactly the right length for the message.
                 throw NIOSSHError.invalidPacketFormat
             }

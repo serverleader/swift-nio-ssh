@@ -28,8 +28,9 @@ public struct NIOSSHAvailableUserAuthenticationMethods: OptionSet {
     public static let publicKey: NIOSSHAvailableUserAuthenticationMethods = .init(rawValue: 1 << 0)
     public static let password: NIOSSHAvailableUserAuthenticationMethods = .init(rawValue: 1 << 1)
     public static let hostBased: NIOSSHAvailableUserAuthenticationMethods = .init(rawValue: 1 << 2)
+    public static let keyboardInteractive: NIOSSHAvailableUserAuthenticationMethods = .init(rawValue: 1 << 3)
 
-    public static let all: NIOSSHAvailableUserAuthenticationMethods = [.publicKey, .password, .hostBased]
+    public static let all: NIOSSHAvailableUserAuthenticationMethods = [.publicKey, .password, .hostBased, .keyboardInteractive]
 }
 
 extension NIOSSHAvailableUserAuthenticationMethods {
@@ -44,6 +45,8 @@ extension NIOSSHAvailableUserAuthenticationMethods {
                 self.insert(.password)
             case "hostbased":
                 self.insert(.hostBased)
+            case "keyboard-interactive":
+                self.insert(.keyboardInteractive)
             default:
                 // This is an unknown method, which we ignore.
                 break
@@ -68,6 +71,9 @@ extension NIOSSHAvailableUserAuthenticationMethods {
         }
         if self.contains(.hostBased) {
             methods.append("hostbased")
+        }
+        if self.contains(.keyboardInteractive) {
+            methods.append("keyboard-interactive")
         }
 
         return methods
@@ -162,6 +168,7 @@ public extension NIOSSHUserAuthenticationOffer {
         case privateKey(PrivateKey)
         case password(Password)
         case hostBased(HostBased)
+        case keyboardInteractive(KeyboardInteractive)
         case none
     }
 }
@@ -197,6 +204,15 @@ public extension NIOSSHUserAuthenticationOffer.Offer {
             fatalError("HostBased authentication is currently unimplemented")
         }
     }
+
+    struct KeyboardInteractive {
+        /// RFC 4256 submethods hint; almost always empty.
+        public var submethods: String
+
+        public init(submethods: String = "") {
+            self.submethods = submethods
+        }
+    }
 }
 
 extension SSHMessage.UserAuthRequestMessage {
@@ -219,6 +235,8 @@ extension SSHMessage.UserAuthRequestMessage {
             self.method = .password(passwordRequest.password)
         case .hostBased:
             fatalError("Unsupported")
+        case .keyboardInteractive(let ki):
+            self.method = .keyboardInteractive(submethods: ki.submethods)
         case .none:
             self.method = .none
         }

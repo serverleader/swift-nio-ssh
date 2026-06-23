@@ -433,7 +433,7 @@ final class UserAuthenticationStateMachineTests: XCTestCase {
 
         // User asks a question, it fails.
         let authRequest = SSHMessage.UserAuthRequestMessage(username: "foo", service: "ssh-connection", method: .password("bar"))
-        let failure = SSHMessage.UserAuthFailureMessage(authentications: ["password", "publickey", "hostbased"], partialSuccess: false)
+        let failure = SSHMessage.UserAuthFailureMessage(authentications: ["password", "publickey", "hostbased", "keyboard-interactive"], partialSuccess: false)
         try self.expectAuthRequestToFailSynchronously(request: authRequest, expecting: failure, stateMachine: &stateMachine)
         stateMachine.sendUserAuthFailure(failure)
 
@@ -452,7 +452,7 @@ final class UserAuthenticationStateMachineTests: XCTestCase {
 
         // The user can ask many questions in parallel.
         let authRequest = SSHMessage.UserAuthRequestMessage(username: "foo", service: "ssh-connection", method: .password("bar"))
-        let failure = SSHMessage.UserAuthFailureMessage(authentications: ["password", "publickey", "hostbased"], partialSuccess: false)
+        let failure = SSHMessage.UserAuthFailureMessage(authentications: ["password", "publickey", "hostbased", "keyboard-interactive"], partialSuccess: false)
 
         for _ in 0 ..< 10 {
             try self.expectAuthRequestToFailSynchronously(request: authRequest, expecting: failure, stateMachine: &stateMachine)

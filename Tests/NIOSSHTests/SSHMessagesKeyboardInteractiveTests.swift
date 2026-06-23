@@ -24,4 +24,12 @@ final class SSHMessagesKeyboardInteractiveTests: XCTestCase {
         _ = buffer.writeUserAuthInfoResponseMessage(original)
         XCTAssertEqual(buffer.readUserAuthInfoResponseMessage(), original)
     }
+
+    func test_availableMethods_parses_keyboardInteractive() {
+        let failure = SSHMessage.UserAuthFailureMessage(authentications: ["publickey", "keyboard-interactive"], partialSuccess: false)
+        let methods = NIOSSHAvailableUserAuthenticationMethods(failure)
+        XCTAssertTrue(methods.contains(.keyboardInteractive))
+        XCTAssertTrue(methods.contains(.publicKey))
+        XCTAssertEqual(Set(methods.strings.map(String.init)), ["publickey", "keyboard-interactive"])
+    }
 }

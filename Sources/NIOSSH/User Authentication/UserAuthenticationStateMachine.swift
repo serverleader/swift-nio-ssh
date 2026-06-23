@@ -488,6 +488,11 @@ private extension UserAuthenticationStateMachine {
             return promise.futureResult.map { outcome in
                 .init(outcome, supportedMethods: supportedMethods)
             }
+
+        case .keyboardInteractive:
+            // Inbound keyboard-interactive server-side dispatch is handled in Task A4.
+            // Return failure for now so the state machine stays in a consistent state.
+            return self.loop.makeSucceededFuture(.failure(.init(authentications: delegate.supportedAuthenticationMethods.strings, partialSuccess: false)))
         }
     }
 }

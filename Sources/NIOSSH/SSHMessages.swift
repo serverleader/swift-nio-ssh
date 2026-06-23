@@ -148,6 +148,7 @@ extension SSHMessage {
             case none
             case publicKey(PublicKeyAuthType)
             case password(String)
+            case keyboardInteractive(submethods: String)
         }
 
         enum PublicKeyAuthType: Equatable {
@@ -1382,6 +1383,10 @@ extension ByteBuffer {
 
         case .publicKey(.unknown):
             preconditionFailure("We cannot write user auth request messages on unknown keys")
+        case .keyboardInteractive(let submethods):
+            writtenBytes += self.writeSSHString("keyboard-interactive".utf8)
+            writtenBytes += self.writeSSHString("".utf8)          // language tag (RFC 4256)
+            writtenBytes += self.writeSSHString(submethods.utf8)  // submethods
         }
 
         return writtenBytes

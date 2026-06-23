@@ -252,10 +252,8 @@ final class KeyboardInteractiveStateMachineTests: XCTestCase {
             XCTAssertTrue(sm.expectingKeyboardInteractive,
                           "flag must survive INFO_RESPONSE (server may issue a retry INFO_REQUEST)")
 
-            // Server sends a SECOND INFO_REQUEST (retry after wrong code) — must still be accepted
-            let delegateB2 = KeyboardInteractiveDelegate()
-            // We need a new capture, so reset the captured fields by using the same delegate
-            // (the second call to nextKeyboardInteractiveResponse overwrites the fields)
+            // Server sends a SECOND INFO_REQUEST (retry after wrong code) — must still be accepted.
+            // Reuse delegateB: the second call to nextKeyboardInteractiveResponse overwrites its captured fields.
             let future2 = try XCTUnwrap(try sm.receiveUserAuthInfoRequest(
                 SSHMessage.UserAuthInfoRequestMessage(
                     name: "PAM", instruction: "", languageTag: "",

@@ -35,6 +35,12 @@ public enum SSHChannelType: Equatable, NIOSSHSendable {
 
     /// "Forwarded TCP/IP" is a connection that was accepted from a listening socket and is being forwarded to the client.
     case forwardedTCPIP(ForwardedTCPIP)
+
+    /// An X11 connection opened by the server after X11 forwarding was requested.
+    case x11(X11)
+
+    /// An OpenSSH agent-forwarding connection opened by the server.
+    case forwardedAgent
 }
 
 public extension SSHChannelType {
@@ -105,6 +111,17 @@ public extension SSHChannelType {
     }
 }
 
+public extension SSHChannelType {
+    struct X11: Equatable, NIOSSHSendable {
+        /// Address of the peer that connected to the remote X11 proxy.
+        public var originatorAddress: SocketAddress
+
+        public init(originatorAddress: SocketAddress) {
+            self.originatorAddress = originatorAddress
+        }
+    }
+}
+
 extension SSHChannelType {
     internal init(_ message: SSHMessage.ChannelOpenMessage) {
         switch message.type {
@@ -114,6 +131,10 @@ extension SSHChannelType {
             self = .directTCPIP(.init(targetHost: message.hostToConnectTo, targetPort: message.portToConnectTo, originatorAddress: message.originatorAddress))
         case .forwardedTCPIP(let message):
             self = .forwardedTCPIP(.init(listeningHost: message.hostListening, listeningPort: message.portListening, originatorAddress: message.originatorAddress))
+        case .x11(let message):
+            self = .x11(.init(originatorAddress: message.originatorAddress))
+        case .forwardedAgent:
+            self = .forwardedAgent
         }
     }
 }
@@ -127,6 +148,10 @@ extension SSHMessage.ChannelOpenMessage.ChannelType {
             self = .directTCPIP(.init(hostToConnectTo: data.targetHost, portToConnectTo: data._targetPort, originatorAddress: data.originatorAddress))
         case .forwardedTCPIP(let data):
             self = .forwardedTCPIP(.init(hostListening: data.listeningHost, portListening: data._listeningPort, originatorAddress: data.originatorAddress))
+        case .x11(let data):
+            self = .x11(.init(originatorAddress: data.originatorAddress))
+        case .forwardedAgent:
+            self = .forwardedAgent
         }
     }
 }

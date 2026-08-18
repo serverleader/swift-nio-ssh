@@ -1530,6 +1530,8 @@ final class ChildChannelMultiplexerTests: XCTestCase {
             SSHChannelType.session,
             SSHChannelType.directTCPIP(.init(targetHost: "apple.com", targetPort: 443, originatorAddress: try! .init(ipAddress: "127.0.0.1", port: 8765))),
             SSHChannelType.forwardedTCPIP(.init(listeningHost: "localhost", listeningPort: 80, originatorAddress: try! .init(ipAddress: "fe80::1", port: 70))),
+            SSHChannelType.x11(.init(originatorAddress: try! .init(ipAddress: "127.0.0.1", port: 6010))),
+            SSHChannelType.forwardedAgent,
         ]
 
         for channelType in channelTypes {
@@ -1561,6 +1563,8 @@ final class ChildChannelMultiplexerTests: XCTestCase {
             SSHChannelType.session,
             SSHChannelType.directTCPIP(.init(targetHost: "apple.com", targetPort: 443, originatorAddress: try! .init(ipAddress: "127.0.0.1", port: 8765))),
             SSHChannelType.forwardedTCPIP(.init(listeningHost: "localhost", listeningPort: 80, originatorAddress: try! .init(ipAddress: "fe80::1", port: 70))),
+            SSHChannelType.x11(.init(originatorAddress: try! .init(ipAddress: "127.0.0.1", port: 6010))),
+            SSHChannelType.forwardedAgent,
         ]
 
         for (channelID, channelType) in channelTypes.enumerated() {

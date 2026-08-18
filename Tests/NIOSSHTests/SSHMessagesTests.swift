@@ -491,6 +491,16 @@ final class SSHMessagesTests: XCTestCase {
         XCTAssertEqual(try buffer.readSSHMessage(), message)
         try self.assertCorrectlyManagesPartialRead(message)
 
+        message = SSHMessage.channelOpen(.init(type: .x11(.init(originatorAddress: address)), senderChannel: 0, initialWindowSize: 42, maximumPacketSize: 24))
+        buffer.writeSSHMessage(message)
+        XCTAssertEqual(try buffer.readSSHMessage(), message)
+        try self.assertCorrectlyManagesPartialRead(message)
+
+        message = SSHMessage.channelOpen(.init(type: .forwardedAgent, senderChannel: 0, initialWindowSize: 42, maximumPacketSize: 24))
+        buffer.writeSSHMessage(message)
+        XCTAssertEqual(try buffer.readSSHMessage(), message)
+        try self.assertCorrectlyManagesPartialRead(message)
+
         func writeBadMessage(into buffer: inout ByteBuffer, type: String, firstPort: UInt32, secondPort: UInt32) {
             buffer.writeInteger(SSHMessage.ChannelOpenMessage.id)
             buffer.writeSSHString(type.utf8)
@@ -637,6 +647,16 @@ final class SSHMessagesTests: XCTestCase {
         try self.assertCorrectlyManagesPartialRead(message)
 
         message = SSHMessage.channelRequest(.init(recipientChannel: 0, type: .exitStatus(1), wantReply: true))
+        buffer.writeSSHMessage(message)
+        XCTAssertEqual(try buffer.readSSHMessage(), message)
+        try self.assertCorrectlyManagesPartialRead(message)
+
+        message = SSHMessage.channelRequest(.init(recipientChannel: 0, type: .agentForwarding, wantReply: true))
+        buffer.writeSSHMessage(message)
+        XCTAssertEqual(try buffer.readSSHMessage(), message)
+        try self.assertCorrectlyManagesPartialRead(message)
+
+        message = SSHMessage.channelRequest(.init(recipientChannel: 0, type: .x11Forwarding(.init(singleConnection: false, authenticationProtocol: "MIT-MAGIC-COOKIE-1", authenticationCookie: "001122aabb", screenNumber: 0)), wantReply: true))
         buffer.writeSSHMessage(message)
         XCTAssertEqual(try buffer.readSSHMessage(), message)
         try self.assertCorrectlyManagesPartialRead(message)

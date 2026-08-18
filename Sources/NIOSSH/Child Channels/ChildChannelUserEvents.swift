@@ -301,6 +301,37 @@ public enum SSHChannelRequestEvent {
             self.signal = signal
         }
     }
+
+    /// Requests OpenSSH authentication-agent forwarding for this session.
+    public struct AgentForwardingRequest: Hashable, NIOSSHSendable {
+        public var wantReply: Bool
+
+        public init(wantReply: Bool) {
+            self.wantReply = wantReply
+        }
+    }
+
+    /// Requests X11 forwarding for this session.
+    public struct X11ForwardingRequest: Hashable, NIOSSHSendable {
+        public var wantReply: Bool
+        public var singleConnection: Bool
+        public var authenticationProtocol: String
+        public var authenticationCookie: String
+        public var screenNumber: UInt32
+
+        public init(wantReply: Bool,
+                    singleConnection: Bool,
+                    authenticationProtocol: String,
+                    authenticationCookie: String,
+                    screenNumber: UInt32)
+        {
+            self.wantReply = wantReply
+            self.singleConnection = singleConnection
+            self.authenticationProtocol = authenticationProtocol
+            self.authenticationCookie = authenticationCookie
+            self.screenNumber = screenNumber
+        }
+    }
 }
 
 extension SSHChannelRequestEvent {
@@ -338,6 +369,14 @@ extension SSHChannelRequestEvent {
             return LocalFlowControlRequest(clientCanDo: clientCanDo) as Any
         case .signal(let signalName):
             return SignalRequest(signal: signalName)
+        case .agentForwarding:
+            return AgentForwardingRequest(wantReply: message.wantReply)
+        case .x11Forwarding(let request):
+            return X11ForwardingRequest(wantReply: message.wantReply,
+                                        singleConnection: request.singleConnection,
+                                        authenticationProtocol: request.authenticationProtocol,
+                                        authenticationCookie: request.authenticationCookie,
+                                        screenNumber: request.screenNumber)
         case .unknown:
             return nil
         }
@@ -425,5 +464,20 @@ extension SSHMessage {
                                                        type: .signal(event.signal),
                                                        wantReply: event.wantReply)
         self = .channelRequest(message)
+    }
+
+    init(_ event: SSHChannelRequestEvent.AgentForwardingRequest, recipientChannel: UInt32) {
+        self = .channelRequest(.init(recipientChannel: recipientChannel,
+                                    type: .agentForwarding,
+                                    wantReply: event.wantReply))
+    }
+
+    init(_ event: SSHChannelRequestEvent.X11ForwardingRequest, recipientChannel: UInt32) {
+        self = .channelRequest(.init(recipientChannel: recipientChannel,
+                                    type: .x11Forwarding(.init(singleConnection: event.singleConnection,
+                                                              authenticationProtocol: event.authenticationProtocol,
+                                                              authenticationCookie: event.authenticationCookie,
+                                                              screenNumber: event.screenNumber)),
+                                    wantReply: event.wantReply))
     }
 }

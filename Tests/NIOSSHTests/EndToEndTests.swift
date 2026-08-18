@@ -601,6 +601,8 @@ class EndToEndTests: XCTestCase {
         helper(SSHChannelRequestEvent.WindowChangeRequest(terminalCharacterWidth: 0, terminalRowHeight: 0, terminalPixelWidth: 720, terminalPixelHeight: 480))
         helper(SSHChannelRequestEvent.LocalFlowControlRequest(clientCanDo: true))
         helper(SSHChannelRequestEvent.SignalRequest(signal: "USR1"))
+        helper(SSHChannelRequestEvent.AgentForwardingRequest(wantReply: true))
+        helper(SSHChannelRequestEvent.X11ForwardingRequest(wantReply: true, singleConnection: false, authenticationProtocol: "MIT-MAGIC-COOKIE-1", authenticationCookie: "001122aabb", screenNumber: 0))
         helper(ChannelSuccessEvent())
         helper(ChannelFailureEvent())
     }

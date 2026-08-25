@@ -69,7 +69,7 @@ public struct NIOSSHPrivateKey {
         case .ecdsaP521:
             return ["ecdsa-sha2-nistp521"]
         case .custom(let backingKey):
-            return [Substring(backingKey.keyPrefix)]
+            return [Substring(backingKey.publicKey.signatureAlgorithmName)]
         #if canImport(Darwin)
         case .secureEnclaveP256:
             return ["ecdsa-sha2-nistp256"]

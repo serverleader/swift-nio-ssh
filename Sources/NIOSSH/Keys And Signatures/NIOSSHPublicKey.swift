@@ -199,12 +199,27 @@ extension NIOSSHPublicKey {
         }
     }
 
+    /// The name this key signs under (see `NIOSSHPublicKeyProtocol.signatureAlgorithmName`).
+    /// Identical to `keyPrefix` for every bundled key type.
+    var signatureAlgorithmName: String.UTF8View {
+        switch self.backingKey {
+        case .ed25519, .ecdsaP256, .ecdsaP384, .ecdsaP521:
+            return self.keyPrefix
+        case .custom(let publicKey):
+            return publicKey.signatureAlgorithmName.utf8
+        case .certified(let base):
+            return base.signatureAlgorithmName
+        }
+    }
+
     private static let bundledAlgorithms: [String.UTF8View] = [
         Self.ed25519PublicKeyPrefix, Self.ecdsaP384PublicKeyPrefix, Self.ecdsaP256PublicKeyPrefix, Self.ecdsaP521PublicKeyPrefix,
     ]
 
     static var knownAlgorithms: [String.UTF8View] {
-        bundledAlgorithms + customPublicKeyAlgorithms.map { $0.publicKeyPrefix.utf8 }
+        bundledAlgorithms
+            + customPublicKeyAlgorithms.map { $0.publicKeyPrefix.utf8 }
+            + customPublicKeyAlgorithms.map { $0.signatureAlgorithmName.utf8 }
     }
 
     static var customPublicKeyAlgorithms: [NIOSSHPublicKeyProtocol.Type] {

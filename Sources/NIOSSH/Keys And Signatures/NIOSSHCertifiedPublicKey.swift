@@ -332,6 +332,11 @@ extension NIOSSHCertifiedPublicKey {
 
     static let ed25519KeyPrefix = "ssh-ed25519-cert-v01@openssh.com".utf8
 
+    /// Certificates sign under their certificate type name, so this is `keyPrefix`.
+    internal var signatureAlgorithmName: String.UTF8View {
+        self.keyPrefix
+    }
+
     internal var keyPrefix: String.UTF8View {
         switch self.key.backingKey {
         case .ed25519:

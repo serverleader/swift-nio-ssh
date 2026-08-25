@@ -49,6 +49,14 @@ public protocol NIOSSHPublicKeyProtocol {
     /// The returned value MUST NOT overlap with other public key implementations or a specifications that the public key does not implement.
     static var publicKeyPrefix: String { get }
 
+    /// The algorithm name advertised for signatures made with this key type: in the
+    /// `publickey` user-auth request, in the KEX `server_host_key_algorithms` list, and
+    /// in `PK_OK`. Defaults to `publicKeyPrefix`. Key types whose key blob and signature
+    /// scheme carry different names (RSA: key blob `ssh-rsa`, signature `rsa-sha2-256`,
+    /// RFC 8332) override this so modern servers, which refuse SHA-1 `ssh-rsa`
+    /// signatures, accept them.
+    static var signatureAlgorithmName: String { get }
+
     /// The raw reprentation of this publc key as a blob.
     var rawRepresentation: Data { get }
 
@@ -63,9 +71,19 @@ public protocol NIOSSHPublicKeyProtocol {
     static func read(from buffer: inout ByteBuffer) throws -> Self
 }
 
+public extension NIOSSHPublicKeyProtocol {
+    static var signatureAlgorithmName: String {
+        publicKeyPrefix
+    }
+}
+
 internal extension NIOSSHPublicKeyProtocol {
     var publicKeyPrefix: String {
         Self.publicKeyPrefix
+    }
+
+    var signatureAlgorithmName: String {
+        Self.signatureAlgorithmName
     }
 }
 

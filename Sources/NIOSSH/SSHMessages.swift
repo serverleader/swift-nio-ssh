@@ -749,7 +749,9 @@ extension ByteBuffer {
                         return nil
                     }
 
-                    guard algorithmName.readableBytesView.elementsEqual(publicKey.keyPrefix) else {
+                    guard algorithmName.readableBytesView.elementsEqual(publicKey.keyPrefix)
+                        || algorithmName.readableBytesView.elementsEqual(publicKey.signatureAlgorithmName)
+                    else {
                         throw NIOSSHError.invalidSSHMessage(reason: "algorithm and key mismatch in user auth request")
                     }
 
@@ -823,7 +825,9 @@ extension ByteBuffer {
             }
 
             // Validate consistency here.
-            guard publicKeyType.readableBytesView.elementsEqual(publicKey.keyPrefix) else {
+            guard publicKeyType.readableBytesView.elementsEqual(publicKey.keyPrefix)
+                || publicKeyType.readableBytesView.elementsEqual(publicKey.signatureAlgorithmName)
+            else {
                 throw NIOSSHError.invalidSSHMessage(reason: "inconsistent key type")
             }
 
@@ -1431,7 +1435,7 @@ extension ByteBuffer {
         case .publicKey(.known(key: let key, signature: let signature)):
             writtenBytes += self.writeSSHString("publickey".utf8)
             writtenBytes += self.writeSSHBoolean(signature != nil)
-            writtenBytes += self.writeSSHString(key.keyPrefix)
+            writtenBytes += self.writeSSHString(key.signatureAlgorithmName)
             writtenBytes += self.writeCompositeSSHString { buffer in
                 buffer.writeSSHHostKey(key)
             }
@@ -1468,7 +1472,7 @@ extension ByteBuffer {
 
     mutating func writeUserAuthPKOKMessage(_ message: SSHMessage.UserAuthPKOKMessage) -> Int {
         var writtenBytes = 0
-        writtenBytes += self.writeSSHString(message.key.keyPrefix)
+        writtenBytes += self.writeSSHString(message.key.signatureAlgorithmName)
         writtenBytes += self.writeCompositeSSHString { buffer in
             buffer.writeSSHHostKey(message.key)
         }

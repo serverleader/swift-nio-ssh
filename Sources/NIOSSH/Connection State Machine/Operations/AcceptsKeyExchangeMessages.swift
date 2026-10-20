@@ -48,5 +48,7 @@ extension AcceptsKeyExchangeMessages {
         // Received a new keys message. Apply the encryption keys to the parser.
         let result = try self.keyExchangeStateMachine.handleNewKeys()
         self.parser.addEncryption(result)
+        // Strict KEX: the inbound sequence number resets after every NEWKEYS received.
+        self.parser.receivedNewKeys()
     }
 }

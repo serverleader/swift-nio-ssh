@@ -75,10 +75,6 @@ struct SSHKeyExchangeStateMachine {
     private var keyExchangeAlgorithms: [NIOSSHKeyExchangeAlgorithmProtocol.Type]
     private var previousSessionIdentifier: ByteBuffer?
 
-    /// Whether strict key exchange mode has been negotiated.
-    /// This is set when both sides advertise the strict KEX extension.
-    private(set) var strictKeyExchangeNegotiated: Bool = false
-
     /// The strict KEX extension identifier advertised by clients.
     static let strictKexClientExtension: Substring = "kex-strict-c-v00@openssh.com"
 
@@ -113,14 +109,17 @@ struct SSHKeyExchangeStateMachine {
         let encryptionAlgorithms = self.supportedEncryptionAlgorithms
         let macAlgorithms = self.supportedMacAlgorithms
 
-        // Append the strict KEX extension pseudo-algorithm to advertise support.
-        // Clients advertise kex-strict-c-v00@openssh.com, servers advertise kex-strict-s-v00@openssh.com.
+        // Advertise strict KEX (draft-miller-sshm-strict-kex 3.1) with the pseudo-algorithm
+        // kex-strict-c-v00@openssh.com (client) / kex-strict-s-v00@openssh.com (server). The marker is
+        // only meaningful in the initial KEXINIT, so rekeys (previousSessionIdentifier != nil) omit it.
         var kexAlgorithms = self.role.keyExchangeAlgorithmNames
-        switch self.role {
-        case .client:
-            kexAlgorithms.append(Self.strictKexClientExtension)
-        case .server:
-            kexAlgorithms.append(Self.strictKexServerExtension)
+        if self.previousSessionIdentifier == nil {
+            switch self.role {
+            case .client:
+                kexAlgorithms.append(Self.strictKexClientExtension)
+            case .server:
+                kexAlgorithms.append(Self.strictKexServerExtension)
+            }
         }
 
         return .init(
@@ -139,25 +138,21 @@ struct SSHKeyExchangeStateMachine {
         )
     }
 
-    mutating func handle(keyExchange message: SSHMessage.KeyExchangeMessage) throws -> SSHMultiMessage? {
-        // Check if the peer supports strict key exchange.
-        // Only negotiate strict KEX during the initial key exchange (previousSessionIdentifier == nil),
-        // not during rekeying.
-        if self.previousSessionIdentifier == nil {
-            switch self.role {
-            case .client:
-                // We're the client; check if the server advertises the server extension.
-                if message.keyExchangeAlgorithms.contains(Self.strictKexServerExtension) {
-                    self.strictKeyExchangeNegotiated = true
-                }
-            case .server:
-                // We're the server; check if the client advertises the client extension.
-                if message.keyExchangeAlgorithms.contains(Self.strictKexClientExtension) {
-                    self.strictKeyExchangeNegotiated = true
-                }
-            }
+    /// Whether the peer's KEXINIT advertises strict key exchange (draft-miller-sshm-strict-kex 3.1).
+    ///
+    /// We always advertise strict KEX in our initial KEXINIT, so strict KEX is negotiated exactly when the
+    /// peer's *initial* KEXINIT carries its marker. Callers must only consult this for the initial KEXINIT:
+    /// the marker's presence or absence in later KEXINITs must be ignored.
+    static func peerAdvertisesStrictKeyExchange(_ message: SSHMessage.KeyExchangeMessage, ourRole: SSHConnectionRole) -> Bool {
+        switch ourRole {
+        case .client:
+            return message.keyExchangeAlgorithms.contains(Self.strictKexServerExtension)
+        case .server:
+            return message.keyExchangeAlgorithms.contains(Self.strictKexClientExtension)
         }
+    }
 
+    mutating func handle(keyExchange message: SSHMessage.KeyExchangeMessage) throws -> SSHMultiMessage? {
         switch self.state {
         case .keyExchangeSent(message: let ourMessage):
             switch self.role {

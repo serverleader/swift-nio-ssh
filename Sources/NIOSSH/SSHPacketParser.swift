@@ -25,14 +25,45 @@ struct SSHPacketParser {
 
     private var buffer: ByteBuffer
     private var state: State
-    private var sequenceNumber: UInt32 = 0
+    /// The sequence number of the next inbound packet.
+    private(set) var sequenceNumber: UInt32 = 0
     private let maximumPacketSize: Int
     static let defaultMaximumPacketSize = 1 << 17
 
-    /// Resets the inbound packet sequence number to 0.
-    /// Required by the strict key exchange extension (CVE-2023-48795 / Terrapin mitigation).
-    mutating func resetSequenceNumber() {
-        self.sequenceNumber = 0
+    /// Whether strict key exchange (draft-miller-sshm-strict-kex, CVE-2023-48795 / Terrapin) is in effect.
+    /// Decided once, from the initial KEXINIT messages.
+    private(set) var strictKeyExchange = false
+
+    /// Whether we have received the SSH_MSG_NEWKEYS that concludes the initial key exchange.
+    private var initialKeyExchangeComplete = false
+
+    /// Enables strict key exchange mode for the rest of the connection.
+    mutating func enableStrictKeyExchange() {
+        self.strictKeyExchange = true
+    }
+
+    /// Must be called immediately after an SSH_MSG_NEWKEYS has been received (initial KEX and every rekey).
+    ///
+    /// Under strict KEX the expected inbound sequence number is reset to zero (draft-miller-sshm-strict-kex 3.3).
+    mutating func receivedNewKeys() {
+        self.initialKeyExchangeComplete = true
+        if self.strictKeyExchange {
+            self.sequenceNumber = 0
+        }
+    }
+
+    /// Testing only: force the inbound sequence number.
+    mutating func _setSequenceNumber(_ sequenceNumber: UInt32) {
+        self.sequenceNumber = sequenceNumber
+    }
+
+    private mutating func incrementSequenceNumber() throws {
+        self.sequenceNumber = self.sequenceNumber &+ 1
+        // draft-miller-sshm-strict-kex 3.2 (and OpenSSH): the sequence number must not wrap before the
+        // initial key exchange has completed.
+        if self.sequenceNumber == 0, !self.initialKeyExchangeComplete {
+            throw NIOSSHError.protocolViolation(protocolName: "transport", violation: "Inbound sequence number wrapped during initial key exchange")
+        }
     }
 
     /// Testing only: the number of bytes we can discard from this buffer.
@@ -97,7 +128,7 @@ struct SSHPacketParser {
 
                 if let message = try self.parsePlaintext(length: length, expectingKeyboardInteractive: expectingKeyboardInteractive) {
                     self.state = .cleartextWaitingForLength
-                    self.sequenceNumber = self.sequenceNumber &+ 1
+                    try self.incrementSequenceNumber()
                     return message
                 }
                 self.state = .cleartextWaitingForBytes(length)
@@ -107,7 +138,7 @@ struct SSHPacketParser {
         case .cleartextWaitingForBytes(let length):
             if let message = try self.parsePlaintext(length: length, expectingKeyboardInteractive: expectingKeyboardInteractive) {
                 self.state = .cleartextWaitingForLength
-                self.sequenceNumber = self.sequenceNumber &+ 1
+                try self.incrementSequenceNumber()
                 return message
             }
             return nil
@@ -118,7 +149,7 @@ struct SSHPacketParser {
 
             if let message = try self.parseCiphertext(length: length, protection: protection, expectingKeyboardInteractive: expectingKeyboardInteractive) {
                 self.state = .encryptedWaitingForLength(protection)
-                self.sequenceNumber = self.sequenceNumber &+ 1
+                try self.incrementSequenceNumber()
                 return message
             }
             self.state = .encryptedWaitingForBytes(length, protection)
@@ -126,7 +157,7 @@ struct SSHPacketParser {
         case .encryptedWaitingForBytes(let length, let protection):
             if let message = try self.parseCiphertext(length: length, protection: protection, expectingKeyboardInteractive: expectingKeyboardInteractive) {
                 self.state = .encryptedWaitingForLength(protection)
-                self.sequenceNumber = self.sequenceNumber &+ 1
+                try self.incrementSequenceNumber()
                 return message
             }
             return nil

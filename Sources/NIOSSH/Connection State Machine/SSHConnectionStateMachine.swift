@@ -64,14 +64,11 @@ struct SSHConnectionStateMachine {
     /// The state of this state machine.
     private var state: State
 
-    /// Whether strict key exchange mode has been negotiated (CVE-2023-48795 / Terrapin mitigation).
-    /// When true, sequence numbers are reset after KEXINIT and NEWKEYS, and unexpected messages
-    /// during key exchange are rejected instead of ignored.
-    private var strictKeyExchange: Bool = false
-
-    /// Whether we are in the initial key exchange (not a rekey).
-    /// Strict KEX sequence number resets only apply during the initial exchange.
-    private var isInitialKeyExchange: Bool = true
+    /// Whether strict key exchange (draft-miller-sshm-strict-kex, CVE-2023-48795 / Terrapin mitigation) has been
+    /// negotiated. Decided once, from the initial KEXINIT messages, and kept for the life of the connection.
+    /// When true, the packet parser and serializer reset their sequence numbers after every NEWKEYS, and any
+    /// non-KEX message received during the initial key exchange terminates the connection.
+    private(set) var strictKeyExchange: Bool = false
 
     /// Attributes of the connection which can be changed by messages handlers
     private let attributes: Attributes
@@ -181,12 +178,17 @@ struct SSHConnectionStateMachine {
             switch message {
             case .keyExchange(let message):
                 let result = try state.receiveKeyExchangeMessage(message)
-                // After processing the peer's KEXINIT, check if strict KEX was negotiated.
-                // If so, reset the parser's inbound sequence number (it should become 1 after
-                // the increment for this packet, so we reset to 0 and it will be at the right value).
-                if self.isInitialKeyExchange && state.keyExchangeStateMachine.strictKeyExchangeNegotiated {
+                // This is the peer's initial KEXINIT (the key exchange state machine rejects a second one).
+                // Strict KEX is decided here, once (draft-miller-sshm-strict-kex 3.1).
+                if SSHKeyExchangeStateMachine.peerAdvertisesStrictKeyExchange(message, ourRole: state.role) {
+                    // 3.2: the KEXINIT must have been the first packet received from the peer, i.e. it carried
+                    // sequence number 0 and the parser has now advanced to 1.
+                    guard state.parser.sequenceNumber == 1 else {
+                        throw NIOSSHError.protocolViolation(protocolName: "strict kex", violation: "KEXINIT was not the first packet received")
+                    }
                     self.strictKeyExchange = true
-                    state.parser.resetSequenceNumber()
+                    state.parser.enableStrictKeyExchange()
+                    state.serializer.enableStrictKeyExchange()
                 }
                 self.state = .keyExchange(state)
                 return result
@@ -200,18 +202,14 @@ struct SSHConnectionStateMachine {
                 return result
             case .newKeys:
                 try state.receiveNewKeysMessage()
-                // Reset inbound sequence number after receiving NEWKEYS when strict KEX is active.
-                if self.strictKeyExchange {
-                    state.parser.resetSequenceNumber()
-                }
                 self.state = .receivedNewKeys(.init(keyExchangeState: state, loop: loop))
                 return .noMessage
             case .disconnect:
                 self.state = .receivedDisconnect(state.role)
                 return .disconnect
             case .ignore, .debug:
-                // In strict key exchange mode during initial KEX, these messages are not allowed.
-                if self.strictKeyExchange && self.isInitialKeyExchange {
+                // draft-miller-sshm-strict-kex 3.2: no non-KEX messages during the initial key exchange.
+                if self.strictKeyExchange {
                     throw NIOSSHError.protocolViolation(protocolName: "strict kex", violation: "Unexpected message during strict key exchange: \(message)")
                 }
                 // Otherwise ignore these
@@ -244,18 +242,15 @@ struct SSHConnectionStateMachine {
                 return result
             case .newKeys:
                 try state.receiveNewKeysMessage()
-                // Reset inbound sequence number after receiving NEWKEYS when strict KEX is active.
-                if self.strictKeyExchange {
-                    state.parser.resetSequenceNumber()
-                }
-                self.isInitialKeyExchange = false
                 self.state = .userAuthentication(.init(sentNewKeysState: state))
                 return .noMessage
             case .disconnect:
                 self.state = .receivedDisconnect(state.role)
                 return .disconnect
             case .ignore, .debug:
-                if self.strictKeyExchange && self.isInitialKeyExchange {
+                // draft-miller-sshm-strict-kex 3.2: we have not received the peer's NEWKEYS yet, so this is
+                // still the initial key exchange.
+                if self.strictKeyExchange {
                     throw NIOSSHError.protocolViolation(protocolName: "strict kex", violation: "Unexpected message during strict key exchange: \(message)")
                 }
                 self.state = .sentNewKeys(state)
@@ -737,11 +732,6 @@ struct SSHConnectionStateMachine {
             switch message {
             case .keyExchange(let keyExchangeMessage):
                 try kex.writeKeyExchangeMessage(keyExchangeMessage, into: &buffer)
-                // After sending our KEXINIT, reset the outbound sequence number if strict KEX
-                // was negotiated during initial key exchange.
-                if self.strictKeyExchange && self.isInitialKeyExchange {
-                    kex.serializer.resetSequenceNumber()
-                }
                 self.state = .keyExchange(kex)
 
             case .keyExchangeInit(let kexInit):
@@ -754,10 +744,6 @@ struct SSHConnectionStateMachine {
 
             case .newKeys:
                 try kex.writeNewKeysMessage(into: &buffer)
-                // Reset outbound sequence number after sending NEWKEYS when strict KEX is active.
-                if self.strictKeyExchange {
-                    kex.serializer.resetSequenceNumber()
-                }
                 var newState = SentNewKeysState(keyExchangeState: kex, loop: loop)
                 let possibleMessage = newState.userAuthStateMachine.beginAuthentication()
                 self.state = .sentNewKeys(newState)
@@ -795,11 +781,6 @@ struct SSHConnectionStateMachine {
 
             case .newKeys:
                 try kex.writeNewKeysMessage(into: &buffer)
-                // Reset outbound sequence number after sending NEWKEYS when strict KEX is active.
-                if self.strictKeyExchange {
-                    kex.serializer.resetSequenceNumber()
-                }
-                self.isInitialKeyExchange = false
 
                 var newState = UserAuthenticationState(receivedNewKeysState: kex)
                 let possibleMessage = newState.userAuthStateMachine.beginAuthentication()

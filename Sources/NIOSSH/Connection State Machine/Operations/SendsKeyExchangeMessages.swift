@@ -40,5 +40,7 @@ extension SendsKeyExchangeMessages {
         let result = self.keyExchangeStateMachine.sendNewKeys()
         try self.serializer.serialize(message: .newKeys, to: &buffer)
         self.serializer.addEncryption(result)
+        // Strict KEX: the outbound sequence number resets immediately after every NEWKEYS sent.
+        self.serializer.sentNewKeys()
     }
 }

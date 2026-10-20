@@ -22,12 +22,43 @@ struct SSHPacketSerializer {
     }
 
     private var state: State = .initialized
-    private var sequenceNumber: UInt32 = 0
+    /// The sequence number of the next outbound packet.
+    private(set) var sequenceNumber: UInt32 = 0
 
-    /// Resets the outbound packet sequence number to 0.
-    /// Required by the strict key exchange extension (CVE-2023-48795 / Terrapin mitigation).
-    mutating func resetSequenceNumber() {
-        self.sequenceNumber = 0
+    /// Whether strict key exchange (draft-miller-sshm-strict-kex, CVE-2023-48795 / Terrapin) is in effect.
+    /// Decided once, from the initial KEXINIT messages.
+    private(set) var strictKeyExchange = false
+
+    /// Whether we have sent the SSH_MSG_NEWKEYS that concludes the initial key exchange.
+    private var initialKeyExchangeComplete = false
+
+    /// Enables strict key exchange mode for the rest of the connection.
+    mutating func enableStrictKeyExchange() {
+        self.strictKeyExchange = true
+    }
+
+    /// Must be called immediately after an SSH_MSG_NEWKEYS has been sent (initial KEX and every rekey).
+    ///
+    /// Under strict KEX the outbound sequence number is reset to zero (draft-miller-sshm-strict-kex 3.3).
+    mutating func sentNewKeys() {
+        self.initialKeyExchangeComplete = true
+        if self.strictKeyExchange {
+            self.sequenceNumber = 0
+        }
+    }
+
+    /// Testing only: force the outbound sequence number.
+    mutating func _setSequenceNumber(_ sequenceNumber: UInt32) {
+        self.sequenceNumber = sequenceNumber
+    }
+
+    private mutating func incrementSequenceNumber() throws {
+        self.sequenceNumber = self.sequenceNumber &+ 1
+        // draft-miller-sshm-strict-kex 3.2 (and OpenSSH): the sequence number must not wrap before the
+        // initial key exchange has completed.
+        if self.sequenceNumber == 0, !self.initialKeyExchangeComplete {
+            throw NIOSSHError.protocolViolation(protocolName: "transport", violation: "Outbound sequence number wrapped during initial key exchange")
+        }
     }
 
     /// Encryption schemes can be added to a packet serializer whenever encryption is negotiated.
@@ -85,11 +116,11 @@ struct SSHPacketSerializer {
             buffer.setInteger(UInt8(paddingLength), at: index + 4)
             /// random padding
             buffer.writeSSHPaddingBytes(count: paddingLength)
-            self.sequenceNumber = self.sequenceNumber &+ 1
+            try self.incrementSequenceNumber()
         case .encrypted(let protection):
             let payload = NIOSSHEncryptablePayload(message: message)
             try protection.encryptPacket(payload, to: &buffer, sequenceNumber: self.sequenceNumber)
-            self.sequenceNumber = self.sequenceNumber &+ 1
+            try self.incrementSequenceNumber()
         }
     }
 }
